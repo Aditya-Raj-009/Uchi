@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -27,6 +28,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.viewpager2.widget.CompositePageTransformer
 import androidx.viewpager2.widget.MarginPageTransformer
@@ -35,7 +37,9 @@ import com.avi.gharkhojo.Adapter.MyViewPagerAdapter
 import com.avi.gharkhojo.Chat.ChatRoom
 import com.avi.gharkhojo.Fragments.HomeDetailsDirections.Companion.actionHomeDetailsToTabLayoutFragment
 import com.avi.gharkhojo.MainActivity
+import com.avi.gharkhojo.Model.ChatUserListModel
 import com.avi.gharkhojo.Model.Post
+import com.avi.gharkhojo.Model.UserData
 import com.avi.gharkhojo.R
 import com.avi.gharkhojo.databinding.FragmentHomeDetailsBinding
 import com.bumptech.glide.Glide
@@ -45,6 +49,12 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import com.google.firebase.database.values
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
@@ -109,7 +119,13 @@ class HomeDetails : Fragment() {
     private val autoSlideRunnable = object : Runnable {
         override fun run() {
             val currentItem = binding.viewPager.currentItem
-            val nextItem = (currentItem + 1) % post?.imageList?.map { it.value }?.flatten()?.size!!
+            val nextItem = (currentItem + 1) % post?.imageList?.map { it.value }?.flatten()?.size.let{
+                if(it==null || it == 0){
+                    1
+                }else{
+                    it
+                }
+            }
             binding.viewPager.setCurrentItem(nextItem, true)
             handler.postDelayed(this, 3000)
         }
@@ -143,7 +159,7 @@ class HomeDetails : Fragment() {
         nameText.text = post?.ownerName
         //descriptionText.text = post?.description
         price.text = post?.rent
-        BHKNumber.text = "${post?.noOfBedRoom!!+post?.noOfBathroom!!+post?.noOfKitchen!!+1}"
+        BHKNumber.text = "${post?.noOfBedRoom!!}"
         propertyType.text = post?.propertyType
         ownerName.text = post?.ownerName
         tenantsServedNumber.text = post?.tenantServed.toString()
@@ -168,9 +184,32 @@ class HomeDetails : Fragment() {
         SecurityGuardIcon.setImageResource(if (post?.hasSecurityGuard == true) R.drawable.ic_tick else R.drawable.ic_cross)
         ParkingIcon.setImageResource(if (post?.hasParking == true) R.drawable.ic_tick else R.drawable.ic_cross)
 
-        Glide.with(requireContext()).load(post?.ownerImage)
-            .placeholder(R.drawable.vk)
-            .into(binding.profileImage)
+        var databaseReference: DatabaseReference = FirebaseDatabase.getInstance().reference.child("users")
+        databaseReference.addValueEventListener(object : ValueEventListener{
+            override fun onDataChange(snapshot: DataSnapshot) {
+                for(dataSnapshot in snapshot.children){
+                    val userData = dataSnapshot.getValue(ChatUserListModel::class.java)
+                    if(userData?.userId.equals(post?.userId)){
+                       val img: Flow<String?> =
+                           databaseReference.child(dataSnapshot.key.toString()).child("userimage").values<String>()
+                       lifecycleScope.launch {
+
+                            Glide.with(requireContext()).load(img.first()!!)
+                                .placeholder(R.drawable.vk)
+                                .into(binding.profileImage)
+                        }
+
+
+                    }
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                TODO("Not yet implemented")
+            }
+
+        })
+
         binding.mapButton.setOnClickListener{
             navigateToGoogleMaps(post?.latitude?:0.0,post?.longitude?:0.0)
         }
@@ -189,6 +228,18 @@ class HomeDetails : Fragment() {
             makeCall(post?.phoneNumber?:"")
         }
 
+        binding.profileImage.setOnClickListener{
+            var bundle:Bundle = Bundle()
+
+            bundle.putString("uid",post?.userId)
+            findNavController().navigate(R.id.action_homeDetails_to_profile,bundle)
+        }
+        binding.profileDetails.setOnClickListener{
+            var bundle:Bundle = Bundle()
+
+            bundle.putString("uid",post?.userId)
+            findNavController().navigate(R.id.action_homeDetails_to_profile,bundle)
+        }
 
 
     }
@@ -477,6 +528,6 @@ class HomeDetails : Fragment() {
         super.onDestroyView()
         //showBottomNavBar()
         handler.removeCallbacks(autoSlideRunnable)
-        _binding = null
+
     }
 }
